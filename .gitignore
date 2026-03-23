@@ -10,4 +10,4 @@ wheels/
 .venv
 
 # raw data
-datasets/raw/*
+datasets/raw/mnist
