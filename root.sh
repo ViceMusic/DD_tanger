@@ -1,0 +1,1 @@
+nohup python main.py > ./log_json/log.txt 2>&1 &
