@@ -29,12 +29,30 @@ train_dataset, test_dataset, shape_info = mnist_tensor()
 train_loader = DataLoader(train_dataset, batch_size=batch_size, shuffle=True)
 test_loader = DataLoader(test_dataset, batch_size=batch_size, shuffle=False)
 
-# 大批量 IPC 循环：50 到 3000，间隔 50
-ipcs = list(range(50, 3001, 50))
-
 # 保存目录
 save_dir = "./datasets/distilled/mnist_simple_DM"
 os.makedirs(save_dir, exist_ok=True)
+
+# 保存原始数据集
+
+train_images = train_dataset.tensors[0].cpu().numpy()
+train_labels = train_dataset.tensors[1].cpu().numpy()
+test_images = test_dataset.tensors[0].cpu().numpy()
+test_labels = test_dataset.tensors[1].cpu().numpy()
+
+np.savez(
+    os.path.join(save_dir, "train_original.npz"),
+    images=train_images,
+    labels=train_labels,
+)
+np.savez(
+    os.path.join(save_dir, "test_original.npz"),
+    images=test_images,
+    labels=test_labels,
+)
+
+# 大批量 IPC 循环：50 到 3000，间隔 50
+ipcs =list(range(50, 3001, 50))
 
 
 # =========================

@@ -12,3 +12,6 @@ wheels/
 # raw data
 datasets/raw/mnist
 datasets/distilled/mnist_simple_DM
+
+# log
+log_json/*.txt
