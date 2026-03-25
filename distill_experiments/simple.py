@@ -22,7 +22,6 @@ from src.distillers.simple_distill import DM
 # =========================
 # 基础配置
 # =========================
-model = SimpleMNISTCNN()
 batch_size = 64
 
 train_dataset, test_dataset, shape_info = mnist_tensor()
@@ -77,15 +76,16 @@ for idx, ipc_num in enumerate(ipcs, start=1):
     print(f"\n========== [{idx}/{len(ipcs)}] IPC={ipc_num} 开始 ==========")
 
     dm = DM(
-        model=model,
+        model_fn=SimpleMNISTCNN,   # 注意这里不是 SimpleMNISTCNN()
         train_dataset=train_dataset,
         num_classes=10,
         ipc=ipc_num,
         image_shape=(1, 28, 28),
         device=None,
         lr_img=1.0,
-        batch_real=64,
-        iters=1000,
+        batch_real=256,
+        iters=2000,
+        init="real",
     )
 
     result = dm.run()

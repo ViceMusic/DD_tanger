@@ -1,6 +1,4 @@
-﻿"""Minimal distiller setup example."""
-import os
-import numpy as np
+import time
 import torch
 import torch.nn as nn
 
@@ -8,115 +6,145 @@ import torch.nn as nn
 class DM:
     def __init__(
         self,
-        model,
+        model_fn,            # 传入“建模函数”，而不是固定 model 实例
         train_dataset,
         num_classes,
         ipc,
         image_shape,
         device=None,
         lr_img=1.0,
-        batch_real=64,
-        iters=1000,
-        save_path="./distilled.npz",
+        batch_real=256,
+        iters=2000,
+        init="real",         # "real" or "noise"
     ):
-        device = device or ("cuda" if torch.cuda.is_available() else "cpu")
-        self.model = model.to(device)
+        self.model_fn = model_fn
         self.train_dataset = train_dataset
         self.num_classes = num_classes
         self.ipc = ipc
         self.image_shape = image_shape
-        self.device = device
+        self.device = device or ("cuda" if torch.cuda.is_available() else "cpu")
         self.lr_img = lr_img
         self.batch_real = batch_real
         self.iters = iters
-        self.save_path = save_path
+        self.init = init
 
         self.images_all, self.labels_all = self._load_dataset()
         self.class_indices = self._build_class_indices()
 
-        self.syn_images = nn.Parameter(
-            torch.randn(num_classes * ipc, *image_shape, device=device).sigmoid()
-        )
+        self.syn_images = nn.Parameter(self._init_syn_images())
         self.syn_labels = torch.tensor(
             [c for c in range(num_classes) for _ in range(ipc)],
             dtype=torch.long,
-            device=device,
+            device=self.device,
         )
 
-        self.optimizer = torch.optim.SGD([self.syn_images], lr=lr_img, momentum=0.5)
+        self.optimizer_img = torch.optim.SGD(
+            [self.syn_images], lr=self.lr_img, momentum=0.5
+        )
 
     def _load_dataset(self):
         images, labels = [], []
         for i in range(len(self.train_dataset)):
             x, y = self.train_dataset[i]
-            if not torch.is_tensor(x):
-                x = torch.tensor(x, dtype=torch.float32)
-            else:
-                x = x.float()
-            if not torch.is_tensor(y):
-                y = torch.tensor(y, dtype=torch.long)
-            else:
-                y = y.long()
+            x = x.float() if torch.is_tensor(x) else torch.tensor(x, dtype=torch.float32)
+            y = y.long() if torch.is_tensor(y) else torch.tensor(y, dtype=torch.long)
             images.append(x)
             labels.append(y)
 
-        images = torch.stack(images)
-        labels = torch.stack(labels).view(-1)
+        images = torch.stack(images).to(self.device)
+        labels = torch.stack(labels).view(-1).to(self.device)
         return images, labels
 
     def _build_class_indices(self):
         class_indices = {}
         for c in range(self.num_classes):
             idx = torch.where(self.labels_all == c)[0]
+            if len(idx) == 0:
+                raise ValueError(f"class {c} has no samples in train_dataset")
             class_indices[c] = idx
         return class_indices
 
-    def get_real_batch(self, class_id):
+    def _init_syn_images(self):
+        if self.init == "real":
+            syn = []
+            for c in range(self.num_classes):
+                idx = self.class_indices[c]
+                perm = torch.randperm(len(idx), device=self.device)[:self.ipc]
+                syn.append(self.images_all[idx[perm]])
+            syn = torch.cat(syn, dim=0).clone().detach()
+            return syn.requires_grad_(True)
+        else:
+            syn = torch.randn(
+                self.num_classes * self.ipc, *self.image_shape, device=self.device
+            ).sigmoid()
+            return syn.requires_grad_(True)
+
+    def get_real_batch(self, class_id, n=None):
+        n = n or self.batch_real
         idx = self.class_indices[class_id]
-        rand_idx = idx[torch.randint(0, len(idx), (self.batch_real,))]
-        return self.images_all[rand_idx].to(self.device)
+        rand_idx = idx[torch.randint(0, len(idx), (n,), device=self.device)]
+        return self.images_all[rand_idx]
 
     def get_syn_batch(self, class_id):
         start = class_id * self.ipc
         end = (class_id + 1) * self.ipc
         return self.syn_images[start:end]
 
+    def augment(self, x):
+        # 这里先留空，默认不增强
+        # 你后面可以替换成 DiffAugment(x, ...)
+        return x
+
     def match_loss(self, feat_real, feat_syn):
-        feat_real = feat_real.view(feat_real.size(0), -1)
-        feat_syn = feat_syn.view(feat_syn.size(0), -1)
+        feat_real = feat_real.reshape(feat_real.size(0), -1)
+        feat_syn = feat_syn.reshape(feat_syn.size(0), -1)
 
         mean_real = feat_real.mean(dim=0)
         mean_syn = feat_syn.mean(dim=0)
 
-        return ((mean_real - mean_syn) ** 2).sum()
+        real_centered = feat_real - mean_real
+        syn_centered = feat_syn - mean_syn
+
+        cov_real = real_centered.T @ real_centered / max(feat_real.size(0) - 1, 1)
+        cov_syn = syn_centered.T @ syn_centered / max(feat_syn.size(0) - 1, 1)
+
+        loss_mean = ((mean_real - mean_syn) ** 2).mean()
+        loss_cov = ((cov_real - cov_syn) ** 2).mean()
+
+        return loss_mean + 0.1 * loss_cov
 
     def distill(self):
-        self.model.eval()
-
         for it in range(1, self.iters + 1):
-            loss_total = 0.0
+            net = self.model_fn().to(self.device)   # 每轮重新采样随机网络
+            net.train()
+
+            for p in net.parameters():
+                p.requires_grad = False
+
+            embed = net.embed
+            loss_total = torch.tensor(0.0, device=self.device)
 
             for c in range(self.num_classes):
-                real_batch = self.get_real_batch(c)
+                real_batch = self.get_real_batch(c, self.batch_real)
                 syn_batch = self.get_syn_batch(c)
 
-                feat_real = self.model.embed(real_batch).detach()
-                feat_syn = self.model.embed(syn_batch)
+                real_batch = self.augment(real_batch)
+                syn_batch = self.augment(syn_batch)
 
-                loss = self.match_loss(feat_real, feat_syn)
-                loss_total += loss
+                feat_real = embed(real_batch).detach()
+                feat_syn = embed(syn_batch)
 
-            self.optimizer.zero_grad()
+                loss_total = loss_total + self.match_loss(feat_real, feat_syn)
+
+            self.optimizer_img.zero_grad()
             loss_total.backward()
-            self.optimizer.step()
+            self.optimizer_img.step()
 
             with torch.no_grad():
                 self.syn_images.clamp_(0.0, 1.0)
 
             if it % 50 == 0 or it == 1:
-                print(f"iter {it}/{self.iters}, loss = {loss_total.item():.6f}")
-
-
+                print(f"iter {it:04d}/{self.iters}, loss = {loss_total.item():.6f}")
 
     def run(self):
         self.distill()
@@ -124,5 +152,3 @@ class DM:
             "images": self.syn_images.detach().cpu(),
             "labels": self.syn_labels.detach().cpu(),
         }
-
-

@@ -1,1 +1,1 @@
-nohup python main.py > ./log_json/simple_pred.txt 2>&1 &
+nohup python main.py > ./log_json/distill_train_test.txt 2>&1 &
