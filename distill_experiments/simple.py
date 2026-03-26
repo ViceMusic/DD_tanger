@@ -52,6 +52,8 @@ np.savez(
 
 # 大批量 IPC 循环：50 到 3000，间隔 50
 ipcs =list(range(50, 3001, 50))
+# 设置一批新的，IPC从10到100，每两个做一次检查
+ipcs = list (range(10,100,2))
 
 
 # =========================
@@ -82,9 +84,8 @@ for idx, ipc_num in enumerate(ipcs, start=1):
         ipc=ipc_num,
         image_shape=(1, 28, 28),
         device=None,
-        lr_img=1.0,
-        batch_real=256,
-        iters=2000,
+        lr_img=0.001,
+        batch_real=256, # 默认为20000轮次
         init="real",
     )
 

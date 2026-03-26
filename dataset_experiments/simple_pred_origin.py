@@ -23,7 +23,7 @@ epochs = 30
 lr = 1e-3
 device = "cuda" if torch.cuda.is_available() else "cpu"
 
-ipcs = list(range(50, 3001, 50))
+ipcs =list (range(10,100,2))# list(range(50, 3001, 50))
 random_repeat = 5
 num_classes = 10
 
@@ -171,7 +171,7 @@ for i, ipc in enumerate(ipcs, start=1):
 # =========================
 # 保存
 # =========================
-json_path = os.path.join(save_dir, "random_baseline.json")
+json_path = os.path.join(save_dir, "random_baseline10to100.json")
 with open(json_path, "w", encoding="utf-8") as f:
     json.dump(all_results, f, indent=4, ensure_ascii=False)
 

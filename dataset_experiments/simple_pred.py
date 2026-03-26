@@ -23,7 +23,7 @@ epochs = 30
 lr = 1e-3
 device = "cuda" if torch.cuda.is_available() else "cpu"
 
-ipcs = list(range(50, 3001, 50))
+ipcs = list (range(10,100,2))
 
 
 # =========================
@@ -161,7 +161,7 @@ for i, case in enumerate(cases, start=1):
 # =========================
 # 保存
 # =========================
-json_path = os.path.join(save_dir, "results.json")
+json_path = os.path.join(save_dir, "results10to100.json")
 with open(json_path, "w", encoding="utf-8") as f:
     json.dump(all_results, f, indent=4, ensure_ascii=False)
 
